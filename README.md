@@ -45,15 +45,17 @@
 
 ## 설치 및 실행
 
-> ⚠️ **`python` 명령어를 그냥 쓰지 마세요.** 이 PC에는 Python이 여러 버전 설치되어 있는데
-> (3.7 / 3.8 / 3.13), PATH 순서상 `python`이 가장 오래된 Anaconda 3.7로 잡힙니다. `fastapi`,
-> `pydantic` 등 최신 패키지는 3.7/3.8을 지원하지 않아 `pip install -r requirements.txt`가
-> 실패합니다. 반드시 **`py -3.13`**(Windows Python Launcher로 3.13 지정)으로 venv를 만드세요.
-> `py -0p`를 실행하면 이 PC에 설치된 Python 버전 목록과 경로를 확인할 수 있습니다.
+**요구 사항**: Windows + Microsoft Excel, Python 3.13 이상.
+
+> 시스템에 여러 버전의 Python이 설치되어 있다면 `python --version`으로 어떤 버전이 잡히는지
+> 먼저 확인하세요. `fastapi`, `pydantic` 등 최신 패키지는 Python 3.13 미만을 지원하지 않습니다.
+> 3.13이 기본이 아니라면 Windows Python Launcher로 버전을 지정해서 venv를 만들면 됩니다
+> (`py -0p`로 설치된 Python 버전 목록과 경로를 확인할 수 있습니다).
 
 ```bash
 cd splitExcelWeb
-py -3.13 -m venv .venv
+py -3.13 -m venv .venv          # 여러 버전 설치 환경: 버전 명시
+# python -m venv .venv          # Python 3.13이 기본이면 이렇게도 가능
 .venv\Scripts\activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
@@ -66,7 +68,7 @@ uvicorn app.main:app --reload --port 8000
 
 브라우저에서 `http://127.0.0.1:8000` 접속.
 
-이미 구버전 Python으로 `.venv`를 만들어버렸다면, 그 폴더를 삭제하고 위 명령으로 다시 만들면 됩니다
+`.venv`를 잘못된 Python 버전으로 만들었다면, 그 폴더를 삭제하고 위 명령으로 다시 만들면 됩니다
 (`.venv`는 언제든 재생성 가능한 산출물이라 지워도 안전합니다).
 
 ## 사용 방법
