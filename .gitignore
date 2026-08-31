@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 런타임에 생성되는 업로드/결과 파일 (Job 단위, storage/uploads/<job_id>/, storage/results/<job_id>/)
+# 코드가 시작 시 자동으로 재생성하므로 버전관리 대상 아님
+storage/
+
+# 개인 메모/스크래치 (커밋 대상 아님)
+클로드 사용용.md
