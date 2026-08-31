@@ -214,6 +214,7 @@ class JobManager:
         job_logger.addHandler(handler)
 
         pythoncom.CoInitialize()
+        processor: Optional[ExcelSplitProcessor] = None
         try:
             cfg = job.config
             options = cfg.get("options", {})
@@ -253,6 +254,8 @@ class JobManager:
             job.status = JobStatus.CANCELLED if job.cancel_event.is_set() else JobStatus.ERROR
             job.error = str(e)
         finally:
+            if processor is not None and processor.excel:
+                processor.quit_excel(processor.excel)
             pythoncom.CoUninitialize()
             job_logger.removeHandler(handler)
             job.log_queue.put(LOG_END_SENTINEL)
