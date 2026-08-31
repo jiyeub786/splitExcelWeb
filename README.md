@@ -8,6 +8,42 @@
 > ⚠️ **Windows + Microsoft Excel 설치 환경**에서만 동작합니다. (Excel COM 자동화를 사용하므로
 > Linux/Mac이나 Excel이 없는 서버에서는 실행되지 않습니다.)
 
+## 스크린샷
+
+<table>
+<tr>
+<td width="50%">
+
+**원본/양식 파일 업로드, 시트 작업 정의**
+<img src="docs/screenshots/main-dark.jpg" alt="파일 업로드와 시트 작업 정의(다크 테마)" width="100%" />
+
+</td>
+<td width="50%">
+
+**범위 선택 뷰어** — 실제 데이터를 보면서 클릭·드래그로 범위 지정
+<img src="docs/screenshots/range-picker.jpg" alt="범위 선택 뷰어" width="100%" />
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**분리 대상 목록 자동 추출 + 옵션**
+<img src="docs/screenshots/split-list.jpg" alt="분리 대상 목록과 옵션" width="100%" />
+
+</td>
+<td width="50%">
+
+**라이트 테마**
+<img src="docs/screenshots/main-light.jpg" alt="라이트 테마" width="100%" />
+
+</td>
+</tr>
+</table>
+
+**설명서** — 처음 쓰는 사람도 따라 할 수 있는 단계별 안내
+<img src="docs/screenshots/help-modal.jpg" alt="설명서 모달" width="70%" />
+
 ## 주요 기능
 
 - **파일 업로드**: 드래그 앤 드롭 또는 클릭으로 원본파일/양식파일 업로드. 두 파일이 같으면
