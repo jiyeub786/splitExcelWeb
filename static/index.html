@@ -76,11 +76,11 @@
       <h2>3. 시트 작업 정의 (table01)</h2>
       <table id="sheetTaskTable">
         <colgroup>
-          <col style="width:22%" />
-          <col style="width:7%" />
-          <col style="width:33%" />
-          <col style="width:33%" />
-          <col style="width:5%" />
+          <col style="width:20%" />
+          <col style="width:6%" />
+          <col style="width:31%" />
+          <col style="width:31%" />
+          <col style="width:12%" />
         </colgroup>
         <thead>
           <tr>
@@ -125,6 +125,7 @@
         </div>
         <div class="button-row">
           <button type="button" id="extractColumnBtn" class="secondary" title="지정한 열에서 고유값을 추출해 분리 대상 목록을 채웁니다">추출</button>
+          <button type="button" id="validateSplitListBtn" class="secondary" title="분리 대상 목록의 각 값이 실제로 이 열에 존재하는지 확인합니다">검증</button>
           <span id="extractStatus" class="hint"></span>
         </div>
       </div>
@@ -188,6 +189,19 @@
     <section class="card">
       <h2>8. 실행 로그</h2>
       <div id="logPanel" class="log-panel"></div>
+      <div class="button-row" style="margin-top:8px;">
+        <button type="button" id="copyLogBtn" class="secondary" title="로그 전체를 클립보드로 복사">로그 복사</button>
+        <button type="button" id="downloadLogBtn" class="secondary" title="로그 전체를 텍스트 파일로 다운로드">로그 다운로드</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>9. Job 히스토리</h2>
+      <p class="hint">이 서버가 실행된 이후의 작업 기록입니다(서버를 재시작하면 초기화됩니다).</p>
+      <div class="button-row" style="margin-bottom:8px;">
+        <button type="button" id="refreshHistoryBtn" class="secondary">새로고침</button>
+      </div>
+      <div id="jobHistoryList"></div>
     </section>
   </main>
 

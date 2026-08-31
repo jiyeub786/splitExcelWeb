@@ -26,6 +26,13 @@ const extractColumn = document.getElementById("extractColumn");
 const extractHeaderRows = document.getElementById("extractHeaderRows");
 const extractColumnBtn = document.getElementById("extractColumnBtn");
 const extractStatus = document.getElementById("extractStatus");
+const validateSplitListBtn = document.getElementById("validateSplitListBtn");
+
+const copyLogBtn = document.getElementById("copyLogBtn");
+const downloadLogBtn = document.getElementById("downloadLogBtn");
+
+const refreshHistoryBtn = document.getElementById("refreshHistoryBtn");
+const jobHistoryList = document.getElementById("jobHistoryList");
 
 const progressTrack = document.getElementById("progressTrack");
 const progressFill = document.getElementById("progressFill");
@@ -44,6 +51,8 @@ let currentJobId = null;
 let currentEventSource = null;
 let currentJobTotal = 0;
 let currentJobCompleted = 0;
+let sourceFileToken = null;
+let templateFileToken = null;
 
 /* ---------- 시트 작업 정의 테이블 ---------- */
 
@@ -64,13 +73,32 @@ function addSheetTaskRow(data) {
         <button type="button" class="pick-range-btn secondary" data-target="paste" title="미리보기에서 붙여넣기 위치 선택">선택</button>
       </div>
     </td>
-    <td><button type="button" class="remove-row-btn icon-btn" title="행 삭제">−</button></td>
+    <td>
+      <div class="row-actions">
+        <button type="button" class="move-row-btn icon-btn" data-dir="up" title="위로 이동">▲</button>
+        <button type="button" class="move-row-btn icon-btn" data-dir="down" title="아래로 이동">▼</button>
+        <button type="button" class="remove-row-btn icon-btn" title="행 삭제">−</button>
+      </div>
+    </td>
   `;
   row.querySelector(".remove-row-btn").addEventListener("click", () => row.remove());
   row.querySelectorAll(".pick-range-btn").forEach((btn) => {
     btn.addEventListener("click", () => openRangePicker(btn.dataset.target, row));
   });
+  row.querySelectorAll(".move-row-btn").forEach((btn) => {
+    btn.addEventListener("click", () => moveRow(row, btn.dataset.dir));
+  });
   sheetTaskTableBody.appendChild(row);
+}
+
+function moveRow(row, dir) {
+  if (dir === "up") {
+    const prev = row.previousElementSibling;
+    if (prev) sheetTaskTableBody.insertBefore(row, prev);
+  } else {
+    const next = row.nextElementSibling;
+    if (next) sheetTaskTableBody.insertBefore(next, row);
+  }
 }
 
 addSheetTaskRowBtn.addEventListener("click", () => addSheetTaskRow());
@@ -258,6 +286,10 @@ setupDropzone(
   document.getElementById("sourceFileName"),
   (file) => {
     if (!file) return;
+    sourceFileToken = null;
+    uploadForCache(file).then((token) => {
+      sourceFileToken = token;
+    });
     fetchSheetNames(file);
     if (!resultFileNmInput.value.trim()) {
       resultFileNmInput.value = file.name.replace(/\.[^./]+$/, "");
@@ -267,7 +299,18 @@ setupDropzone(
     }
   }
 );
-setupDropzone(document.getElementById("templateDropzone"), templateFileInput, document.getElementById("templateFileName"));
+setupDropzone(
+  document.getElementById("templateDropzone"),
+  templateFileInput,
+  document.getElementById("templateFileName"),
+  (file) => {
+    if (!file) return;
+    templateFileToken = null;
+    uploadForCache(file).then((token) => {
+      templateFileToken = token;
+    });
+  }
+);
 
 templateSameAsSource.addEventListener("change", () => {
   templateFileField.style.display = templateSameAsSource.checked ? "none" : "";
@@ -277,12 +320,36 @@ function getTemplateFile() {
   return templateSameAsSource.checked ? sourceFileInput.files[0] : templateFileInput.files[0];
 }
 
+function getTemplateFileToken() {
+  return templateSameAsSource.checked ? sourceFileToken : templateFileToken;
+}
+
+/* ---------- 업로드 파일 서버측 캐싱(범위 선택/추출 시 재업로드 방지) ---------- */
+
+async function uploadForCache(file) {
+  try {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch("/api/preview/upload", { method: "POST", body: fd });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.token ?? null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function attachFileOrToken(formData, file, token, fileField, tokenField) {
+  if (token) formData.append(tokenField ?? "token", token);
+  else if (file) formData.append(fileField ?? "file", file);
+}
+
 /* ---------- 시트명 자동완성 ---------- */
 
 async function fetchSheetNames(file) {
   try {
     const formData = new FormData();
-    formData.append("file", file);
+    attachFileOrToken(formData, file, sourceFileToken);
     const res = await fetch("/api/preview/sheets", { method: "POST", body: formData });
     if (!res.ok) return;
     const data = await res.json();
@@ -309,7 +376,7 @@ extractColumnBtn.addEventListener("click", async () => {
 
   extractStatus.textContent = "추출 중...";
   const formData = new FormData();
-  formData.append("file", file);
+  attachFileOrToken(formData, file, sourceFileToken);
   formData.append("sheet_name", sheetName);
   formData.append("column", column);
   formData.append("header_rows", extractHeaderRows.value.trim() || "1");
@@ -331,6 +398,48 @@ extractColumnBtn.addEventListener("click", async () => {
   } catch (err) {
     extractStatus.textContent = "";
     alert("추출 실패: " + err);
+  }
+});
+
+/* ---------- 분리 대상 목록 사전 검증 ---------- */
+
+validateSplitListBtn.addEventListener("click", async () => {
+  const file = sourceFileInput.files[0];
+  if (!file) return alert("원본파일을 먼저 선택해주세요");
+  const sheetName = extractSheetName.value.trim();
+  const column = extractColumn.value.trim();
+  if (!sheetName) return alert("시트명을 입력해주세요");
+  if (!column) return alert("열을 입력해주세요 (예: C 또는 3)");
+  const splitList = collectSplitList();
+  if (splitList.length === 0) return alert("분리 대상 목록이 비어 있습니다");
+
+  extractStatus.textContent = "검증 중...";
+  const formData = new FormData();
+  attachFileOrToken(formData, file, sourceFileToken);
+  formData.append("sheet_name", sheetName);
+  formData.append("column", column);
+  formData.append("header_rows", extractHeaderRows.value.trim() || "1");
+  formData.append("split_list", JSON.stringify(splitList));
+
+  try {
+    const res = await fetch("/api/preview/validate-split-list", { method: "POST", body: formData });
+    const data = await res.json();
+    if (!res.ok) {
+      extractStatus.textContent = "";
+      return alert("검증 실패: " + (data.detail ?? res.status));
+    }
+    if (data.missing.length === 0) {
+      extractStatus.textContent = `${data.matched_count}개 값 모두 이 열에서 확인됐습니다`;
+    } else {
+      extractStatus.textContent = `${data.matched_count}개 일치, ${data.missing.length}개 불일치`;
+      alert(
+        `다음 값은 이 열의 실제 데이터에서 찾지 못했습니다(오타 여부를 확인해주세요):\n\n` +
+          data.missing.join("\n")
+      );
+    }
+  } catch (err) {
+    extractStatus.textContent = "";
+    alert("검증 실패: " + err);
   }
 });
 
@@ -404,6 +513,7 @@ function openRangePicker(mode, rowEl) {
   if (!sheetName) return alert("먼저 이 행의 시트명을 입력해주세요");
 
   const file = mode === "copy" ? sourceFileInput.files[0] : getTemplateFile();
+  const token = mode === "copy" ? sourceFileToken : getTemplateFileToken();
   if (!file) return alert(mode === "copy" ? "원본파일을 먼저 선택해주세요" : "양식파일을 먼저 선택해주세요(또는 '원본파일과 동일' 체크)");
 
   rangePickerState.mode = mode;
@@ -423,7 +533,7 @@ function openRangePicker(mode, rowEl) {
   rangePickerModal.hidden = false;
 
   const formData = new FormData();
-  formData.append("file", file);
+  attachFileOrToken(formData, file, token);
   formData.append("sheet_name", sheetName);
   formData.append("max_rows", "200");
   formData.append("max_cols", "40");
@@ -622,6 +732,40 @@ function setRunningUI(running) {
   forceStopBtn.disabled = !running;
 }
 
+async function runDryRunCheck(sourceFile, templateFile, sheetTasks) {
+  try {
+    const formData = new FormData();
+    attachFileOrToken(formData, sourceFile, sourceFileToken, "source_file", "source_token");
+    attachFileOrToken(formData, templateFile, getTemplateFileToken(), "template_file", "template_token");
+    formData.append("sheet_tasks", JSON.stringify(sheetTasks));
+    const res = await fetch("/api/validate/dry-run", { method: "POST", body: formData });
+    const data = await res.json();
+    if (!res.ok) {
+      return confirm(`사전 점검을 수행하지 못했습니다: ${data.detail ?? res.status}\n\n그래도 계속할까요?`);
+    }
+    if (data.ok) return true;
+    return confirm(`다음 문제가 발견되었습니다:\n\n${data.errors.join("\n")}\n\n그래도 계속할까요?`);
+  } catch (err) {
+    return confirm(`사전 점검 중 오류가 발생했습니다: ${err}\n\n그래도 계속할까요?`);
+  }
+}
+
+async function checkExcelRunningWarning() {
+  try {
+    const res = await fetch("/api/system/excel-status");
+    if (!res.ok) return true;
+    const data = await res.json();
+    if (data.count > 0) {
+      return confirm(
+        `현재 Excel이 ${data.count}개 실행 중인 것으로 보입니다. 작업 전 Excel을 모두 닫는 것을 권장합니다.\n\n그래도 계속할까요?`
+      );
+    }
+    return true;
+  } catch (err) {
+    return true;
+  }
+}
+
 async function submitJob(testMode) {
   const sourceFile = sourceFileInput.files[0];
   const templateFile = getTemplateFile();
@@ -636,6 +780,16 @@ async function submitJob(testMode) {
     return alert("필터 열을 올바르게 입력해주세요 (예: A, B, C ... 또는 숫자)");
   }
   if (cfg.split_list.length === 0) return alert("분리 대상 목록을 1개 이상 입력해주세요");
+
+  statusLine.textContent = "사전 점검 중...";
+  if (!(await runDryRunCheck(sourceFile, templateFile, cfg.sheet_tasks))) {
+    statusLine.textContent = "대기 중";
+    return;
+  }
+  if (!(await checkExcelRunningWarning())) {
+    statusLine.textContent = "대기 중";
+    return;
+  }
 
   const formData = new FormData();
   formData.append("source_file", sourceFile);
@@ -690,9 +844,14 @@ async function pollJobStatus(jobId) {
         downloadLink.href = `/api/jobs/${jobId}/result`;
         downloadLink.style.display = "inline-block";
       }
+      loadJobHistory();
       return;
     }
-    statusLine.textContent = `실행 중... (${job.status})`;
+    if (job.status === "pending" && job.queue_position) {
+      statusLine.textContent = `대기열: ${job.queue_position}번째`;
+    } else {
+      statusLine.textContent = `실행 중... (${job.status})`;
+    }
     setTimeout(poll, 1000);
   };
   poll();
@@ -713,7 +872,11 @@ const THEME_STORAGE_KEY = "splitexcelweb-theme";
 const themeToggle = document.getElementById("themeToggle");
 
 function getCurrentTheme() {
-  return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  const attr = document.documentElement.getAttribute("data-theme");
+  if (attr === "light" || attr === "dark") return attr;
+  // 명시적으로 고른 적 없으면 실제로 렌더링되는 값(OS 설정)을 그대로 보고한다.
+  const prefersLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+  return prefersLight ? "light" : "dark";
 }
 
 function applyThemeButtonLabel(theme) {
@@ -761,3 +924,157 @@ forceStopBtn.addEventListener("click", async () => {
   const data = await res.json();
   statusLine.textContent = `강제 종료 요청됨 (종료된 프로세스: ${data.killed_processes ?? 0}개)`;
 });
+
+/* ---------- 실행 로그 복사/다운로드 ---------- */
+
+copyLogBtn.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(logPanel.textContent);
+    copyLogBtn.textContent = "복사됨";
+    setTimeout(() => (copyLogBtn.textContent = "로그 복사"), 1500);
+  } catch (err) {
+    alert("클립보드 복사에 실패했습니다: " + err);
+  }
+});
+
+downloadLogBtn.addEventListener("click", () => {
+  const blob = new Blob([logPanel.textContent], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `splitexcel_log_${currentJobId ?? "log"}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+/* ---------- Job 히스토리 ---------- */
+
+const JOB_STATUS_LABEL = {
+  pending: "대기",
+  running: "실행 중",
+  done: "완료",
+  error: "오류",
+  cancelled: "취소됨",
+};
+
+async function loadJobHistory() {
+  try {
+    const res = await fetch("/api/jobs");
+    if (!res.ok) return;
+    const data = await res.json();
+    renderJobHistory(data.jobs ?? []);
+  } catch (err) {
+    // 히스토리 로드 실패는 조용히 무시(핵심 기능이 아님)
+  }
+}
+
+function renderJobHistory(jobs) {
+  jobHistoryList.innerHTML = "";
+  if (jobs.length === 0) {
+    jobHistoryList.innerHTML = '<p class="hint">아직 실행한 작업이 없습니다.</p>';
+    return;
+  }
+  jobs.forEach((job) => {
+    const item = document.createElement("div");
+    item.className = "job-history-item";
+
+    const statusBadge = document.createElement("span");
+    statusBadge.className = `job-history-status status-${job.status}`;
+    statusBadge.textContent = JOB_STATUS_LABEL[job.status] ?? job.status;
+    item.appendChild(statusBadge);
+
+    const meta = document.createElement("span");
+    meta.className = "job-history-meta";
+    const when = new Date(job.created_at).toLocaleString();
+    meta.textContent = `${job.source_filename} · ${when}` + (job.error ? ` · ${job.error}` : "");
+    item.appendChild(meta);
+
+    if (job.result_ready) {
+      const zipLink = document.createElement("a");
+      zipLink.href = `/api/jobs/${job.job_id}/result`;
+      zipLink.className = "secondary";
+      zipLink.style.cssText = "display:inline-flex;align-items:center;padding:4px 10px;height:auto;font-size:12px;text-decoration:none;border-radius:6px;";
+      zipLink.textContent = "zip 다운로드";
+      item.appendChild(zipLink);
+
+      const filesToggle = document.createElement("button");
+      filesToggle.type = "button";
+      filesToggle.className = "secondary";
+      filesToggle.style.cssText = "padding:4px 10px;height:auto;font-size:12px;";
+      filesToggle.textContent = "파일별 보기";
+      filesToggle.addEventListener("click", () => toggleResultFiles(job.job_id, item, filesToggle));
+      item.appendChild(filesToggle);
+    }
+
+    jobHistoryList.appendChild(item);
+  });
+}
+
+async function toggleResultFiles(jobId, item, toggleBtn) {
+  const existing = item.querySelector(".job-history-files");
+  if (existing) {
+    existing.remove();
+    toggleBtn.textContent = "파일별 보기";
+    return;
+  }
+  try {
+    const res = await fetch(`/api/jobs/${jobId}/results`);
+    const data = await res.json();
+    const filesDiv = document.createElement("div");
+    filesDiv.className = "job-history-files";
+    if (!data.files || data.files.length === 0) {
+      filesDiv.textContent = "결과 파일이 없습니다.";
+    } else {
+      data.files.forEach((name) => {
+        const a = document.createElement("a");
+        a.href = `/api/jobs/${jobId}/result/${encodeURIComponent(name)}`;
+        a.textContent = name;
+        filesDiv.appendChild(a);
+      });
+    }
+    item.appendChild(filesDiv);
+    toggleBtn.textContent = "숨기기";
+  } catch (err) {
+    alert("파일 목록을 불러오지 못했습니다: " + err);
+  }
+}
+
+refreshHistoryBtn.addEventListener("click", loadJobHistory);
+loadJobHistory();
+
+/* ---------- 설정 자동 저장(초안) ---------- */
+
+const DRAFT_STORAGE_KEY = "splitexcelweb-draft";
+let draftSaveTimer = null;
+
+function saveDraft() {
+  try {
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(collectConfig(false)));
+  } catch (e) {
+    // 저장 실패해도 화면 동작에는 영향 없음
+  }
+}
+
+function scheduleDraftSave() {
+  clearTimeout(draftSaveTimer);
+  draftSaveTimer = setTimeout(saveDraft, 800);
+}
+
+function restoreDraft() {
+  let saved;
+  try {
+    saved = localStorage.getItem(DRAFT_STORAGE_KEY);
+  } catch (e) {
+    return;
+  }
+  if (!saved) return;
+  try {
+    applyConfig(JSON.parse(saved));
+  } catch (e) {
+    // 저장된 초안이 손상됐으면 조용히 무시
+  }
+}
+
+restoreDraft();
+document.querySelector("main").addEventListener("input", scheduleDraftSave);
+document.querySelector("main").addEventListener("change", scheduleDraftSave);

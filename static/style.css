@@ -51,6 +51,28 @@
   --body-text: #181a20;
   --muted: #707a8a;
   --muted-strong: #55606e;
+  --primary-disabled: #f0e2a8;
+}
+
+/* 사용자가 아직 명시적으로 테마를 고른 적 없으면(=localStorage에 저장된 값이 없어 <html>에
+   data-theme가 안 붙어있으면) OS 설정을 따른다. 명시적으로 dark를 고른 경우는 제외한다. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+
+    --canvas: #ffffff;
+    --surface-card: #ffffff;
+    --surface-elevated: #f5f5f5;
+
+    --hairline: #eaecef;
+    --border-strong: #cdd1d6;
+
+    --text-strong: #181a20;
+    --body-text: #181a20;
+    --muted: #707a8a;
+    --muted-strong: #55606e;
+    --primary-disabled: #f0e2a8;
+  }
 }
 
 * {
@@ -641,4 +663,82 @@ button:disabled {
   padding: 1px 5px;
   font-family: var(--font-plex);
   font-size: 12px;
+}
+
+/* Job 히스토리 */
+.job-history-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.job-history-item:last-child {
+  border-bottom: none;
+}
+
+.job-history-status {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.job-history-status.status-done {
+  background: rgba(14, 203, 129, 0.15);
+  color: var(--trading-up);
+}
+
+.job-history-status.status-error,
+.job-history-status.status-cancelled {
+  background: rgba(246, 70, 93, 0.15);
+  color: var(--trading-down);
+}
+
+.job-history-status.status-running,
+.job-history-status.status-pending {
+  background: rgba(252, 213, 53, 0.15);
+  color: var(--primary);
+}
+
+.job-history-meta {
+  color: var(--muted);
+  flex: 1;
+  min-width: 160px;
+}
+
+.job-history-files {
+  width: 100%;
+  padding-left: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.job-history-files a {
+  color: var(--primary);
+  text-decoration: none;
+  margin-right: 10px;
+}
+
+.job-history-files a:hover {
+  text-decoration: underline;
+}
+
+/* 시트 작업 행 순서 이동 */
+.row-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.move-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 11px;
 }

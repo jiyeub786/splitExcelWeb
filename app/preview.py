@@ -11,9 +11,12 @@ openpyxl 대신 python-calamine(Rust 기반 파서)을 사용한다: 실사용 �
 """
 
 import datetime
+import re
 from typing import BinaryIO, List
 
 from python_calamine import CalamineWorkbook, WorksheetNotFound
+
+_RANGE_RE = re.compile(r"^[A-Za-z]{1,3}[0-9]+(:[A-Za-z]{1,3}[0-9]+)?$")
 
 
 def _format_cell(v) -> str:
@@ -106,3 +109,45 @@ def extract_column_values(
         seen.add(s)
         values.append(s)
     return values
+
+
+def validate_split_list(
+    stream: BinaryIO, sheet_name: str, column: str, header_rows: int, split_list: List[str]
+) -> dict:
+    """분리 대상 목록의 각 값이 실제로 필터 열에 존재하는지 확인한다(오타로 빈 결과 파일이
+    생기는 것을 사전에 방지하기 위함)."""
+    actual_values = set(extract_column_values(stream, sheet_name, column, header_rows=header_rows))
+    missing = [v for v in split_list if v not in actual_values]
+    return {"missing": missing, "matched_count": len(split_list) - len(missing)}
+
+
+def validate_range_syntax(range_str: str) -> bool:
+    return bool(_RANGE_RE.match(range_str.strip()))
+
+
+def dry_run_validate(
+    source_stream: BinaryIO, template_stream: BinaryIO, sheet_tasks: List[dict]
+) -> List[str]:
+    """작업 시작 전 사전 점검: 시트명이 원본/양식 양쪽에 모두 있는지, 범위 문법이 올바른지 확인해
+    Excel COM을 띄우기 전에 흔한 실수를 미리 잡아낸다."""
+    errors: List[str] = []
+    source_sheets = set(list_sheet_names(source_stream))
+    template_sheets = set(list_sheet_names(template_stream))
+
+    for i, task in enumerate(sheet_tasks, start=1):
+        sheet_name = str(task.get("sheet_name", "")).strip()
+        copy_range = str(task.get("copy_range", "")).strip()
+        paste_range = str(task.get("paste_range", "")).strip()
+
+        if not sheet_name:
+            errors.append(f"{i}번째 행: 시트명이 비어 있습니다.")
+        else:
+            if sheet_name not in source_sheets:
+                errors.append(f"{i}번째 행: 원본파일에 '{sheet_name}' 시트가 없습니다.")
+            if sheet_name not in template_sheets:
+                errors.append(f"{i}번째 행: 양식파일에 '{sheet_name}' 시트가 없습니다.")
+        if not validate_range_syntax(copy_range):
+            errors.append(f"{i}번째 행: 복사 범위 '{copy_range}' 형식이 올바르지 않습니다(예: A1:D500).")
+        if not validate_range_syntax(paste_range):
+            errors.append(f"{i}번째 행: 붙여넣기 위치 '{paste_range}' 형식이 올바르지 않습니다(예: A2).")
+    return errors

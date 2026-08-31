@@ -20,7 +20,7 @@ import zipfile
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import pythoncom
 
@@ -35,6 +35,7 @@ for _d in (UPLOAD_DIR, RESULT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 LOG_END_SENTINEL = "__END__"
+JOB_RETENTION_DAYS = 7  # storage/uploads, storage/results 자동 정리 보관 기간
 
 
 class JobStatus(str, Enum):
@@ -82,8 +83,11 @@ class JobManager:
     def __init__(self) -> None:
         self.jobs: Dict[str, Job] = {}
         self._pending: "queue.Queue[str]" = queue.Queue()
+        self._pending_order: List[str] = []
+        self._order_lock = threading.Lock()
         self._worker = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker.start()
+        self._cleanup_old_jobs()
 
     def create_job(self, config: dict, source_file, template_file) -> Job:
         job_id = uuid.uuid4().hex
@@ -109,11 +113,43 @@ class JobManager:
             result_dir=result_dir,
         )
         self.jobs[job_id] = job
+        with self._order_lock:
+            self._pending_order.append(job_id)
         self._pending.put(job_id)
         return job
 
     def get(self, job_id: str) -> Optional[Job]:
         return self.jobs.get(job_id)
+
+    def list_jobs(self) -> List[dict]:
+        """Job 히스토리(최신순). 서버 프로세스가 살아있는 동안의 메모리 내 기록만 대상이다."""
+        jobs = sorted(self.jobs.values(), key=lambda j: j.created_at, reverse=True)
+        return [
+            {
+                "job_id": j.id,
+                "status": j.status,
+                "error": j.error,
+                "created_at": j.created_at.isoformat(),
+                "result_ready": j.status == JobStatus.DONE and j.result_zip_path.exists(),
+                "source_filename": j.source_path.name.removeprefix("source_"),
+                "queue_position": self.get_queue_position(j.id),
+            }
+            for j in jobs
+        ]
+
+    def get_queue_position(self, job_id: str) -> Optional[int]:
+        """대기열에서 몇 번째인지(1부터). 대기 중이 아니면 None."""
+        with self._order_lock:
+            try:
+                return self._pending_order.index(job_id) + 1
+            except ValueError:
+                return None
+
+    def list_result_files(self, job_id: str) -> Optional[List[str]]:
+        job = self.jobs.get(job_id)
+        if job is None:
+            return None
+        return sorted(p.name for p in job.result_dir.glob("*.xlsx"))
 
     def cancel(self, job_id: str) -> bool:
         """데스크톱 버전의 writeFlag('0')에 대응 — 이 Job에만 취소 신호를 보낸다."""
@@ -122,6 +158,21 @@ class JobManager:
             return False
         job.cancel_event.set()
         return True
+
+    def count_excel_processes(self) -> int:
+        """
+        작업 시작 전 "열려 있는 Excel 감지" 경고에 사용. 데스크톱 버전 사용법 문서
+        (UsageUi.ui)의 "작업 전 Excel을 모두 종료하라"는 주의사항을 안내만 하는 대신,
+        실제로 떠 있는지 확인해서 사용자가 판단할 수 있게 한다. 종료는 하지 않는다
+        (force_kill_excel과 달리 읽기 전용).
+        """
+        import psutil
+
+        return sum(
+            1
+            for proc in psutil.process_iter(["name"])
+            if proc.info.get("name", "").lower() == "excel.exe"
+        )
 
     def force_kill_excel(self) -> int:
         """
@@ -150,6 +201,9 @@ class JobManager:
             self._run_job(job)
 
     def _run_job(self, job: Job) -> None:
+        with self._order_lock:
+            if job.id in self._pending_order:
+                self._pending_order.remove(job.id)
         job.status = JobStatus.RUNNING
 
         job_logger = logging.getLogger(f"splitexcel.job.{job.id}")
@@ -208,6 +262,41 @@ class JobManager:
         with zipfile.ZipFile(job.result_zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for file in sorted(job.result_dir.glob("*.xlsx")):
                 zf.write(file, arcname=file.name)
+
+    def _cleanup_old_jobs(self, max_age_days: int = JOB_RETENTION_DAYS) -> int:
+        """
+        서버 시작 시 1회 실행되는 저장소 정리. storage/uploads/<job_id>/,
+        storage/results/<job_id>/, storage/results/<job_id>.zip 중 전부 오래된(최신 수정시각
+        기준 max_age_days 초과) 것만 지운다. 서버가 막 시작된 시점이라 self.jobs가 비어있으므로
+        "지금 실행 중인 Job"과 충돌할 위험이 없다.
+        """
+        cutoff = datetime.datetime.now() - datetime.timedelta(days=max_age_days)
+        job_ids = set()
+        if UPLOAD_DIR.exists():
+            job_ids.update(p.name for p in UPLOAD_DIR.iterdir() if p.is_dir())
+        if RESULT_DIR.exists():
+            for p in RESULT_DIR.iterdir():
+                job_ids.add(p.stem if p.suffix == ".zip" else p.name)
+
+        removed = 0
+        for job_id in job_ids:
+            paths = [
+                p
+                for p in (UPLOAD_DIR / job_id, RESULT_DIR / job_id, RESULT_DIR / f"{job_id}.zip")
+                if p.exists()
+            ]
+            if not paths:
+                continue
+            newest = max(datetime.datetime.fromtimestamp(p.stat().st_mtime) for p in paths)
+            if newest >= cutoff:
+                continue
+            for p in paths:
+                try:
+                    shutil.rmtree(p) if p.is_dir() else p.unlink()
+                    removed += 1
+                except OSError:
+                    pass
+        return removed
 
 
 job_manager = JobManager()
